@@ -40,30 +40,30 @@ const fetchItems = (): Promise<Array<Header>> => {
         return cheerio.load(body);
       }
     }).then($ => {
-      const navItems = $('#gc-wrapper > div > nav > ul > li');
+      const navItems = $('devsite-book-nav div.devsite-mobile-nav-bottom ul.devsite-nav-list > li');
       const headers: Array<Header> = [];
       let currentHeader: Header | null = null;
       navItems.each((i: number, navItem: any) => {
-        if ($(navItem).hasClass('devsite-nav-item-heading')) {
-          const headingText = $(navItem).children('span').text();
+        if ($(navItem).hasClass('devsite-nav-heading')) {
+          const headingText = $(navItem).children('div').text().trim();
           currentHeader = {
             text: headingText,
             sections: []
           };
           headers.push(currentHeader);
         } else {
-          const sectionText = $(navItem).children('span').text();
+          const sectionText = $(navItem).find('devsite-expandable-nav div span').text();
           const section: Section = {
             text: sectionText,
             items: []
           };
           currentHeader!.sections.push(section);
-          $(navItem).children('ul').each((i: number,ul: any) => {
-            const items = $(ul).children('li');
+          $(navItem).find('ul').each((i: number,ul: any) => {
+            const items = $(ul).find('li');
             items.each((i: number, item: any) => {
-              if ($(item).hasClass('devsite-nav-item-section-expandable')) {
+              if ($(item).hasClass('devsite-nav-expandable')) {
                 const category = {
-                  text: $(item).children('span').text(),
+                  text: $(item).find('devsite-expandable-nav div span').text(),
                   category: true,
                   items: []
                 } as Category;
@@ -179,21 +179,25 @@ const crawlEachPageAndStoreToFirestore = (headers: Array<Header>): Promise<void>
 
 const deleteAllDataInFirestore = (): Promise<void> => {
   return new Promise<void>(async (resolve, reject) => {
-    const batch = db.batch();
-    let snapshot = await db.collection('headers').get();
-    snapshot.docs.forEach(doc => {
-      batch.delete(doc.ref);
-    });
-    snapshot = await db.collection('sections').get();
-    snapshot.docs.forEach(doc => {
-      batch.delete(doc.ref);
-    });
-    snapshot = await db.collection('items').get();
-    snapshot.docs.forEach(doc => {
-      batch.delete(doc.ref);
-    });
-    await batch.commit();
-    resolve();
+    try {
+      const batch = db.batch();
+      let snapshot = await db.collection('headers').get();
+      snapshot.docs.forEach(doc => {
+        batch.delete(doc.ref);
+      });
+      snapshot = await db.collection('sections').get();
+      snapshot.docs.forEach(doc => {
+        batch.delete(doc.ref);
+      });
+      snapshot = await db.collection('items').get();
+      snapshot.docs.forEach(doc => {
+        batch.delete(doc.ref);
+      });
+      await batch.commit();
+      resolve();
+    } catch(e) {
+      reject(e);
+    }
   });
 }
 
@@ -267,10 +271,18 @@ const runtimeOptions = {
 };
 
 export const crawlAogDocOverview = functions.runWith(runtimeOptions).pubsub.topic('crawl').onPublish(async message => {
-  console.log('Start: crawlAogDocOverview');
-  const headers = await fetchItems();
-  await deleteAllDataInFirestore();
-  await crawlEachPageAndStoreToFirestore(headers);
-  console.log('End: crawlAogDocOverview');
-  return 0;
+  try {
+    console.log('Start: crawlAogDocOverview');
+    const headers = await fetchItems();
+    console.log('Delete all data in Firestore');
+    // await deleteAllDataInFirestore();
+    console.log('Crawl each page, and store it to Firestore');
+    await crawlEachPageAndStoreToFirestore(headers);
+    console.log('End: crawlAogDocOverview');
+    return 0;
+  } catch(e) {
+    console.error('Crawling failed');
+    console.error(e.message, e);
+    return 1;
+  }
 });
